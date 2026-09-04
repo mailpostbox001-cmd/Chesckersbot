@@ -1,0 +1,12 @@
+{
+  "name": "cheskers-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "canvas": "^2.11.2",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
