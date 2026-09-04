@@ -1,4 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
+const { createCanvas } = require('canvas');
 const http = require('http');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -87,13 +88,15 @@ function createInitialBoard() {
   return board;
 }
 
-// Генерація SVG замість canvas
 function generateBoardImage(board, isFlipped = false, lastMove = null) {
   const size = 800;
   const cellSize = size / 8;
-  
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`;
-  svg += `<rect width="${size}" height="${size}" fill="#ececd7"/>`;
+  const canvas = createCanvas(size, size);
+  const ctx = canvas.getContext('2d');
+
+  // Обов'язкова заливка фону, щоб уникнути чорного екрана в Telegram!
+  ctx.fillStyle = '#ececd7';
+  ctx.fillRect(0, 0, size, size);
 
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
@@ -106,32 +109,40 @@ function generateBoardImage(board, isFlipped = false, lastMove = null) {
       let fillColor = isDark ? '#6b889e' : '#ececd7';
       if (isLastMove) fillColor = isDark ? '#baca44' : '#f6f669';
       
-      const x = c * cellSize;
-      const y = r * cellSize;
-      
-      svg += `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" fill="${fillColor}"/>`;
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
 
       // Координати
-      if (c === 7) {
-        svg += `<text x="${x + cellSize - 8}" y="${y + 18}" font-family="Arial" font-weight="bold" font-size="16" fill="${isLastMove ? '#333' : (isDark ? '#ececd7' : '#6b889e')}" text-anchor="end">${8 - drawR}</text>`;
-      }
-      if (r === 7) {
-        svg += `<text x="${x + 8}" y="${y + cellSize - 8}" font-family="Arial" font-weight="bold" font-size="16" fill="${isLastMove ? '#333' : (isDark ? '#ececd7' : '#6b889e')}">${String.fromCharCode(97 + drawC)}</text>`;
-      }
+      ctx.fillStyle = isLastMove ? '#333' : (isDark ? '#ececd7' : '#6b889e');
+      ctx.font = 'bold 16px Arial';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      if (c === 7) ctx.fillText(8 - drawR, c * cellSize + cellSize - 8, r * cellSize + 24);
+      
+      ctx.textAlign = 'left';
+      if (r === 7) ctx.fillText(String.fromCharCode(97 + drawC), c * cellSize + 8, r * cellSize + cellSize - 8);
 
       const piece = board[drawR][drawC];
       if (piece) {
-        const cx = x + cellSize / 2;
-        const cy = y + cellSize / 2 + 5;
         const pColor = piece.c === 'green' ? '#ffffff' : '#000000';
         const strokeColor = piece.c === 'green' ? '#000000' : '#ffffff';
         
-        svg += `<text x="${cx}" y="${cy}" font-family="Arial" font-weight="bold" font-size="65" fill="${pColor}" stroke="${strokeColor}" stroke-width="1" text-anchor="middle" dominant-baseline="central">${getPieceText(piece.t)}</text>`;
+        ctx.fillStyle = pColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 2;
+        ctx.font = 'bold 65px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const cx = c * cellSize + cellSize / 2;
+        const cy = r * cellSize + cellSize / 2 + 5;
+        
+        ctx.fillText(getPieceText(piece.t), cx, cy);
+        ctx.strokeText(getPieceText(piece.t), cx, cy);
       }
     }
   }
-  svg += `</svg>`;
-  return Buffer.from(svg);
+  return canvas.toBuffer('image/png');
 }
 
 function isJumpMove(sr, sc, tr, tc, piece, board) {
@@ -373,7 +384,8 @@ async function broadcastGame(hostId, text) {
     const oldMsgId = game.lastMsgId[pid];
     
     try {
-      const msg = await bot.sendPhoto(pid, img, { caption: text, reply_markup: getKeyboard(game, pid) }, { filename: 'board.svg', contentType: 'image/svg+xml' });
+      // Повертаємо image/png для відправки
+      const msg = await bot.sendPhoto(pid, img, { caption: text, reply_markup: getKeyboard(game, pid) }, { filename: 'board.png', contentType: 'image/png' });
       game.lastMsgId[pid] = msg.message_id;
     } catch (e) { console.error(e); }
     
