@@ -80,7 +80,7 @@ function createInitialBoard() {
   return board;
 }
 
-// Перетворюємо позицію на стандартний формат FEN для отримання ідеальної картинки
+// Перетворюємо позицію на стандартний формат FEN
 function generateFen(board) {
   let fen = "";
   for (let r = 0; r < 8; r++) {
@@ -107,7 +107,7 @@ function generateFen(board) {
   return fen + " w - - 0 1";
 }
 
-// Миттєво завантажує красиву картинку дошки через публічний API
+// Завантаження картинки
 function fetchBoardImage(url) {
   return new Promise((resolve, reject) => {
     https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
@@ -356,9 +356,11 @@ async function broadcastGame(hostId, text) {
     const isP2 = (pid === game.p2);
     const isFlipped = game.p2 ? isP2 : game.isFlipped; 
 
-    // Отримуємо дошку безпосередньо з динамічного API, без використання власного малювання
     const flipParam = isFlipped ? 1 : 0;
-    const apiUrl = `https://www.chess.com/dynboard?fen=${encodeURIComponent(fenStr)}&board=green&piece=neo&size=2&flip=${flipParam}`;
+    
+    // Тут змінено колір дошки на blue (синій) та додано координати (coordinates=inside)
+    const apiUrl = `https://www.chess.com/dynboard?fen=${encodeURIComponent(fenStr)}&board=blue&piece=neo&size=2&flip=${flipParam}&coordinates=inside`;
+    
     const oldMsgId = game.lastMsgId[pid];
     
     try {
