@@ -1,5 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
-const { createCanvas, loadImage } = require('canvas');
+const https = require('https');
 const http = require('http');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -13,32 +13,6 @@ const userGames = {};
 const games = {}; 
 
 const P = '♟', N = '♞', B = '♝', K = '♚';
-
-// Посилання на класичні шахові фігури у високій якості (PNG)
-const PIECE_URLS = {
-  'green_♟': 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Chess_plt45.svg/120px-Chess_plt45.svg.png',
-  'green_♞': 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Chess_nlt45.svg/120px-Chess_nlt45.svg.png',
-  'green_♝': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Chess_blt45.svg/120px-Chess_blt45.svg.png',
-  'green_♚': 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Chess_klt45.svg/120px-Chess_klt45.svg.png',
-  'blue_♟': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Chess_pdt45.svg/120px-Chess_pdt45.svg.png',
-  'blue_♞': 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Chess_ndt45.svg/120px-Chess_ndt45.svg.png',
-  'blue_♝': 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Chess_bdt45.svg/120px-Chess_bdt45.svg.png',
-  'blue_♚': 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Chess_kdt45.svg/120px-Chess_kdt45.svg.png'
-};
-
-const pieceImages = {};
-
-// Попереднє завантаження картинок при старті сервера
-async function loadAllImages() {
-  for (const [key, url] of Object.entries(PIECE_URLS)) {
-    try {
-      pieceImages[key] = await loadImage(url);
-    } catch (e) {
-      console.error(`Не вдалося завантажити ${key}:`, e);
-    }
-  }
-}
-loadAllImages();
 
 const dict = {
   uk: {
@@ -92,14 +66,6 @@ function getBtnEmoji(piece) {
   return (piece.c === 'green' ? '▫️ ' : '▪️ ') + (piece.t === P ? 'П' : piece.t === N ? 'К' : piece.t === B ? 'С' : 'Кр');
 }
 
-function getDrawText(pieceType) {
-  if (pieceType === P) return 'П';
-  if (pieceType === N) return 'К';
-  if (pieceType === B) return 'С';
-  if (pieceType === K) return 'Кр';
-  return pieceType;
-}
-
 function createInitialBoard() {
   let board = Array(8).fill(null).map(() => Array(8).fill(null));
   board[0][1] = { c: 'green', t: N }; board[0][3] = { c: 'green', t: K }; 
@@ -114,72 +80,43 @@ function createInitialBoard() {
   return board;
 }
 
-async function generateBoardImage(board, isFlipped = false, lastMove = null) {
-  const size = 800;
-  const cellSize = size / 8;
-  const canvas = createCanvas(size, size);
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#ececd7';
-  ctx.fillRect(0, 0, size, size);
-
+// Перетворюємо позицію на стандартний формат FEN для отримання ідеальної картинки
+function generateFen(board) {
+  let fen = "";
   for (let r = 0; r < 8; r++) {
+    let emptyCount = 0;
     for (let c = 0; c < 8; c++) {
-      const drawR = isFlipped ? 7 - r : r;
-      const drawC = isFlipped ? 7 - c : c;
-      const isDark = (drawR + drawC) % 2 !== 0;
-      
-      let isLastMove = (lastMove && ((drawR === lastMove.sr && drawC === lastMove.sc) || (drawR === lastMove.tr && drawC === lastMove.tc)));
-      
-      let fillColor = isDark ? '#6b889e' : '#ececd7';
-      if (isLastMove) fillColor = isDark ? '#baca44' : '#f6f669';
-      
-      ctx.fillStyle = fillColor;
-      ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
-
-      ctx.fillStyle = isLastMove ? '#333' : (isDark ? '#ececd7' : '#6b889e');
-      ctx.font = 'bold 16px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'bottom';
-      if (c === 7) ctx.fillText(8 - drawR, c * cellSize + cellSize - 8, r * cellSize + 24);
-      
-      ctx.textAlign = 'left';
-      if (r === 7) ctx.fillText(String.fromCharCode(97 + drawC), c * cellSize + 8, r * cellSize + cellSize - 8);
-
-      const piece = board[drawR][drawC];
+      const piece = board[r][c];
       if (piece) {
-        const imgKey = `${piece.c}_${piece.t}`;
-        
-        // Якщо картинки немає в кеші, спробуємо швидко її завантажити
-        if (!pieceImages[imgKey]) {
-          try {
-            pieceImages[imgKey] = await loadImage(PIECE_URLS[imgKey]);
-          } catch (e) {}
-        }
-        
-        const img = pieceImages[imgKey];
-        
-        if (img) {
-          // Малюємо красиву фігуру з PNG
-          const padding = 12;
-          ctx.drawImage(img, c * cellSize + padding, r * cellSize + padding, cellSize - padding*2, cellSize - padding*2);
-        } else {
-          // Запасний варіант: малюємо літеру, якщо картинка недоступна
-          const pColor = piece.c === 'green' ? '#ffffff' : '#000000';
-          const strokeColor = piece.c === 'green' ? '#000000' : '#ffffff';
-          ctx.fillStyle = pColor;
-          ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = 3;
-          ctx.font = 'bold 50px sans-serif'; 
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(getDrawText(piece.t), c * cellSize + cellSize / 2, r * cellSize + cellSize / 2);
-          ctx.strokeText(getDrawText(piece.t), c * cellSize + cellSize / 2, r * cellSize + cellSize / 2);
-        }
+        if (emptyCount > 0) { fen += emptyCount; emptyCount = 0; }
+        let pChar = '';
+        if (piece.t === P) pChar = 'p';
+        else if (piece.t === N) pChar = 'n';
+        else if (piece.t === B) pChar = 'b';
+        else if (piece.t === K) pChar = 'k';
+
+        if (piece.c === 'blue') pChar = pChar.toUpperCase(); // Білі (сині) завжди великими
+        fen += pChar;
+      } else {
+        emptyCount++;
       }
     }
+    if (emptyCount > 0) fen += emptyCount;
+    if (r < 7) fen += "/";
   }
-  return canvas.toBuffer('image/jpeg', { quality: 0.95 });
+  return fen + " w - - 0 1";
+}
+
+// Миттєво завантажує красиву картинку дошки через публічний API
+function fetchBoardImage(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+      if (res.statusCode !== 200) return reject(new Error(`API Error: ${res.statusCode}`));
+      const data = [];
+      res.on('data', chunk => data.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(data)));
+    }).on('error', reject);
+  });
 }
 
 function isJumpMove(sr, sc, tr, tc, piece, board) {
@@ -412,19 +349,26 @@ async function broadcastGame(hostId, text) {
   const game = games[hostId];
   if (!game) return;
 
+  const fenStr = generateFen(game.board);
+
   for (const pid of [game.p1, game.p2]) {
     if (!pid) continue;
     const isP2 = (pid === game.p2);
     const isFlipped = game.p2 ? isP2 : game.isFlipped; 
 
-    // Додано await, щоб дочекатись завершення генерації з картинками
-    const img = await generateBoardImage(game.board, isFlipped, game.lastMove);
+    // Отримуємо дошку безпосередньо з динамічного API, без використання власного малювання
+    const flipParam = isFlipped ? 1 : 0;
+    const apiUrl = `https://www.chess.com/dynboard?fen=${encodeURIComponent(fenStr)}&board=green&piece=neo&size=2&flip=${flipParam}`;
     const oldMsgId = game.lastMsgId[pid];
     
     try {
-      const msg = await bot.sendPhoto(pid, img, { caption: text, reply_markup: getKeyboard(game, pid) }, { filename: 'board.jpg', contentType: 'image/jpeg' });
+      const imgBuffer = await fetchBoardImage(apiUrl);
+      const msg = await bot.sendPhoto(pid, imgBuffer, { caption: text, reply_markup: getKeyboard(game, pid) }, { filename: 'board.png', contentType: 'image/png' });
       game.lastMsgId[pid] = msg.message_id;
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e);
+      bot.sendMessage(pid, text + "\n(Дошка генерується...)", { reply_markup: getKeyboard(game, pid) });
+    }
     
     if (oldMsgId && !getUserPref(pid).archive) {
       bot.deleteMessage(pid, oldMsgId).catch(()=>{});
@@ -481,7 +425,7 @@ function makeBotMove(hostId) {
   }
 
   const chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
-  setTimeout(async () => { await handleMove(hostId, chosen.sr, chosen.sc, chosen.tr, chosen.tc); }, 5000);
+  setTimeout(async () => { await handleMove(hostId, chosen.sr, chosen.sc, chosen.tr, chosen.tc); }, 3000);
 }
 
 async function handleMove(hostId, sr, sc, tr, tc) {
@@ -524,7 +468,7 @@ async function handleMove(hostId, sr, sc, tr, tc) {
   if (piece.t === P && ((piece.c === 'blue' && tr === 0) || (piece.c === 'green' && tr === 7))) {
     if (game.botLevel > 0 && piece.c === 'green') {
       piece.t = K;
-      game.history[game.history.length - 1] += '=' + getDrawText(K);
+      game.history[game.history.length - 1] += '=' + 'Кр';
     } else {
       game.isPromoting = true;
       game.promoTarget = { r: tr, c: tc };
@@ -555,7 +499,8 @@ async function handleMove(hostId, sr, sc, tr, tc) {
   }
 
   const turnStr = game.turn === 'blue' ? t('turn_black', game.p1) : t('turn_white', game.p1);
-  await broadcastGame(hostId, `${t('move_made', game.p1)}: ${moveStr}\n${t('next_turn', game.p1)}: ${turnStr}`);
+  const lastMoveInfo = `Останній хід: ${moveStr}`;
+  await broadcastGame(hostId, `${t('move_made', game.p1)}\n${lastMoveInfo}\n${t('next_turn', game.p1)}: ${turnStr}`);
 
   if (game.botLevel > 0 && game.turn === 'green') makeBotMove(hostId);
 }
@@ -698,7 +643,7 @@ bot.on('callback_query', async (query) => {
     const chosen = data.split('_')[1];
     
     game.board[game.promoTarget.r][game.promoTarget.c].t = chosen;
-    game.history[game.history.length - 1] += '=' + getDrawText(chosen); 
+    game.history[game.history.length - 1] += '=' + 'Фіг'; 
     
     game.isPromoting = false; 
     game.promoTarget = null;
