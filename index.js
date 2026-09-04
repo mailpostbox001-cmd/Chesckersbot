@@ -1,5 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
-const { createCanvas } = require('canvas');
+const { createCanvas, loadImage } = require('canvas');
 const http = require('http');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -13,6 +13,32 @@ const userGames = {};
 const games = {}; 
 
 const P = '♟', N = '♞', B = '♝', K = '♚';
+
+// Посилання на класичні шахові фігури у високій якості (PNG)
+const PIECE_URLS = {
+  'green_♟': 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Chess_plt45.svg/120px-Chess_plt45.svg.png',
+  'green_♞': 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Chess_nlt45.svg/120px-Chess_nlt45.svg.png',
+  'green_♝': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Chess_blt45.svg/120px-Chess_blt45.svg.png',
+  'green_♚': 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Chess_klt45.svg/120px-Chess_klt45.svg.png',
+  'blue_♟': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Chess_pdt45.svg/120px-Chess_pdt45.svg.png',
+  'blue_♞': 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Chess_ndt45.svg/120px-Chess_ndt45.svg.png',
+  'blue_♝': 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Chess_bdt45.svg/120px-Chess_bdt45.svg.png',
+  'blue_♚': 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Chess_kdt45.svg/120px-Chess_kdt45.svg.png'
+};
+
+const pieceImages = {};
+
+// Попереднє завантаження картинок при старті сервера
+async function loadAllImages() {
+  for (const [key, url] of Object.entries(PIECE_URLS)) {
+    try {
+      pieceImages[key] = await loadImage(url);
+    } catch (e) {
+      console.error(`Не вдалося завантажити ${key}:`, e);
+    }
+  }
+}
+loadAllImages();
 
 const dict = {
   uk: {
@@ -61,17 +87,17 @@ function getUserPref(chatId) {
 
 function sqName(r, c) { return String.fromCharCode(97 + c) + (8 - r); }
 
-function getPieceText(pieceType) {
-  if (pieceType === P) return '♟';
-  if (pieceType === N) return '♞';
-  if (pieceType === B) return '♝';
-  if (pieceType === K) return '♚';
-  return pieceType;
-}
-
 function getBtnEmoji(piece) {
   if (!piece) return '';
   return (piece.c === 'green' ? '▫️ ' : '▪️ ') + (piece.t === P ? 'П' : piece.t === N ? 'К' : piece.t === B ? 'С' : 'Кр');
+}
+
+function getDrawText(pieceType) {
+  if (pieceType === P) return 'П';
+  if (pieceType === N) return 'К';
+  if (pieceType === B) return 'С';
+  if (pieceType === K) return 'Кр';
+  return pieceType;
 }
 
 function createInitialBoard() {
@@ -88,13 +114,12 @@ function createInitialBoard() {
   return board;
 }
 
-function generateBoardImage(board, isFlipped = false, lastMove = null) {
+async function generateBoardImage(board, isFlipped = false, lastMove = null) {
   const size = 800;
   const cellSize = size / 8;
   const canvas = createCanvas(size, size);
   const ctx = canvas.getContext('2d');
 
-  // Обов'язкова заливка фону, щоб уникнути чорного екрана в Telegram!
   ctx.fillStyle = '#ececd7';
   ctx.fillRect(0, 0, size, size);
 
@@ -112,9 +137,8 @@ function generateBoardImage(board, isFlipped = false, lastMove = null) {
       ctx.fillStyle = fillColor;
       ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
 
-      // Координати
       ctx.fillStyle = isLastMove ? '#333' : (isDark ? '#ececd7' : '#6b889e');
-      ctx.font = 'bold 16px Arial';
+      ctx.font = 'bold 16px sans-serif';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'bottom';
       if (c === 7) ctx.fillText(8 - drawR, c * cellSize + cellSize - 8, r * cellSize + 24);
@@ -124,25 +148,38 @@ function generateBoardImage(board, isFlipped = false, lastMove = null) {
 
       const piece = board[drawR][drawC];
       if (piece) {
-        const pColor = piece.c === 'green' ? '#ffffff' : '#000000';
-        const strokeColor = piece.c === 'green' ? '#000000' : '#ffffff';
+        const imgKey = `${piece.c}_${piece.t}`;
         
-        ctx.fillStyle = pColor;
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = 2;
-        ctx.font = 'bold 65px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        // Якщо картинки немає в кеші, спробуємо швидко її завантажити
+        if (!pieceImages[imgKey]) {
+          try {
+            pieceImages[imgKey] = await loadImage(PIECE_URLS[imgKey]);
+          } catch (e) {}
+        }
         
-        const cx = c * cellSize + cellSize / 2;
-        const cy = r * cellSize + cellSize / 2 + 5;
+        const img = pieceImages[imgKey];
         
-        ctx.fillText(getPieceText(piece.t), cx, cy);
-        ctx.strokeText(getPieceText(piece.t), cx, cy);
+        if (img) {
+          // Малюємо красиву фігуру з PNG
+          const padding = 12;
+          ctx.drawImage(img, c * cellSize + padding, r * cellSize + padding, cellSize - padding*2, cellSize - padding*2);
+        } else {
+          // Запасний варіант: малюємо літеру, якщо картинка недоступна
+          const pColor = piece.c === 'green' ? '#ffffff' : '#000000';
+          const strokeColor = piece.c === 'green' ? '#000000' : '#ffffff';
+          ctx.fillStyle = pColor;
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = 3;
+          ctx.font = 'bold 50px sans-serif'; 
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(getDrawText(piece.t), c * cellSize + cellSize / 2, r * cellSize + cellSize / 2);
+          ctx.strokeText(getDrawText(piece.t), c * cellSize + cellSize / 2, r * cellSize + cellSize / 2);
+        }
       }
     }
   }
-  return canvas.toBuffer('image/png');
+  return canvas.toBuffer('image/jpeg', { quality: 0.95 });
 }
 
 function isJumpMove(sr, sc, tr, tc, piece, board) {
@@ -380,12 +417,12 @@ async function broadcastGame(hostId, text) {
     const isP2 = (pid === game.p2);
     const isFlipped = game.p2 ? isP2 : game.isFlipped; 
 
-    const img = generateBoardImage(game.board, isFlipped, game.lastMove);
+    // Додано await, щоб дочекатись завершення генерації з картинками
+    const img = await generateBoardImage(game.board, isFlipped, game.lastMove);
     const oldMsgId = game.lastMsgId[pid];
     
     try {
-      // Повертаємо image/png для відправки
-      const msg = await bot.sendPhoto(pid, img, { caption: text, reply_markup: getKeyboard(game, pid) }, { filename: 'board.png', contentType: 'image/png' });
+      const msg = await bot.sendPhoto(pid, img, { caption: text, reply_markup: getKeyboard(game, pid) }, { filename: 'board.jpg', contentType: 'image/jpeg' });
       game.lastMsgId[pid] = msg.message_id;
     } catch (e) { console.error(e); }
     
@@ -487,7 +524,7 @@ async function handleMove(hostId, sr, sc, tr, tc) {
   if (piece.t === P && ((piece.c === 'blue' && tr === 0) || (piece.c === 'green' && tr === 7))) {
     if (game.botLevel > 0 && piece.c === 'green') {
       piece.t = K;
-      game.history[game.history.length - 1] += '=' + getPieceText(K);
+      game.history[game.history.length - 1] += '=' + getDrawText(K);
     } else {
       game.isPromoting = true;
       game.promoTarget = { r: tr, c: tc };
@@ -661,7 +698,7 @@ bot.on('callback_query', async (query) => {
     const chosen = data.split('_')[1];
     
     game.board[game.promoTarget.r][game.promoTarget.c].t = chosen;
-    game.history[game.history.length - 1] += '=' + getPieceText(chosen); 
+    game.history[game.history.length - 1] += '=' + getDrawText(chosen); 
     
     game.isPromoting = false; 
     game.promoTarget = null;
