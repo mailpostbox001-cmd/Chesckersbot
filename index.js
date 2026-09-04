@@ -1,5 +1,4 @@
-   const TelegramBot = require('node-telegram-bot-api');
-const { createCanvas } = require('canvas');
+const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -62,16 +61,16 @@ function getUserPref(chatId) {
 function sqName(r, c) { return String.fromCharCode(97 + c) + (8 - r); }
 
 function getPieceText(pieceType) {
-  if (pieceType === P) return 'П';
-  if (pieceType === N) return 'К';
-  if (pieceType === B) return 'С';
-  if (pieceType === K) return 'Кр';
+  if (pieceType === P) return '♟';
+  if (pieceType === N) return '♞';
+  if (pieceType === B) return '♝';
+  if (pieceType === K) return '♚';
   return pieceType;
 }
 
 function getBtnEmoji(piece) {
   if (!piece) return '';
-  return (piece.c === 'green' ? '▫️ ' : '▪️ ') + getPieceText(piece.t);
+  return (piece.c === 'green' ? '▫️ ' : '▪️ ') + (piece.t === P ? 'П' : piece.t === N ? 'К' : piece.t === B ? 'С' : 'Кр');
 }
 
 function createInitialBoard() {
@@ -88,11 +87,13 @@ function createInitialBoard() {
   return board;
 }
 
+// Генерація SVG замість canvas
 function generateBoardImage(board, isFlipped = false, lastMove = null) {
   const size = 800;
   const cellSize = size / 8;
-  const canvas = createCanvas(size, size);
-  const ctx = canvas.getContext('2d');
+  
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`;
+  svg += `<rect width="${size}" height="${size}" fill="#ececd7"/>`;
 
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
@@ -102,30 +103,35 @@ function generateBoardImage(board, isFlipped = false, lastMove = null) {
       
       let isLastMove = (lastMove && ((drawR === lastMove.sr && drawC === lastMove.sc) || (drawR === lastMove.tr && drawC === lastMove.tc)));
       
-      if (isLastMove) ctx.fillStyle = isDark ? '#baca44' : '#f6f669'; 
-      else ctx.fillStyle = isDark ? '#6b889e' : '#ececd7';
+      let fillColor = isDark ? '#6b889e' : '#ececd7';
+      if (isLastMove) fillColor = isDark ? '#baca44' : '#f6f669';
       
-      ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+      const x = c * cellSize;
+      const y = r * cellSize;
+      
+      svg += `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" fill="${fillColor}"/>`;
 
-      ctx.font = 'bold 16px Arial';
-      ctx.fillStyle = isLastMove ? '#333' : (isDark ? '#ececd7' : '#6b889e');
-      if (c === 7) { ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText(8 - drawR, (c + 1) * cellSize - 4, r * cellSize + 4); }
-      if (r === 7) { ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(String.fromCharCode(97 + drawC), c * cellSize + 4, (r + 1) * cellSize - 4); }
+      // Координати
+      if (c === 7) {
+        svg += `<text x="${x + cellSize - 8}" y="${y + 18}" font-family="Arial" font-weight="bold" font-size="16" fill="${isLastMove ? '#333' : (isDark ? '#ececd7' : '#6b889e')}" text-anchor="end">${8 - drawR}</text>`;
+      }
+      if (r === 7) {
+        svg += `<text x="${x + 8}" y="${y + cellSize - 8}" font-family="Arial" font-weight="bold" font-size="16" fill="${isLastMove ? '#333' : (isDark ? '#ececd7' : '#6b889e')}">${String.fromCharCode(97 + drawC)}</text>`;
+      }
 
       const piece = board[drawR][drawC];
       if (piece) {
-        ctx.shadowColor = piece.c === 'green' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.6)';
-        ctx.shadowBlur = 5;
-        ctx.font = 'bold 65px Arial';
-        ctx.fillStyle = piece.c === 'green' ? '#ffffff' : '#000000';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(piece.t, c * cellSize + cellSize / 2, r * cellSize + cellSize / 2);
-        ctx.shadowBlur = 0;
+        const cx = x + cellSize / 2;
+        const cy = y + cellSize / 2 + 5;
+        const pColor = piece.c === 'green' ? '#ffffff' : '#000000';
+        const strokeColor = piece.c === 'green' ? '#000000' : '#ffffff';
+        
+        svg += `<text x="${cx}" y="${cy}" font-family="Arial" font-weight="bold" font-size="65" fill="${pColor}" stroke="${strokeColor}" stroke-width="1" text-anchor="middle" dominant-baseline="central">${getPieceText(piece.t)}</text>`;
       }
     }
   }
-  return canvas.toBuffer('image/png');
+  svg += `</svg>`;
+  return Buffer.from(svg);
 }
 
 function isJumpMove(sr, sc, tr, tc, piece, board) {
@@ -280,7 +286,6 @@ function getKeyboard(game, playerId) {
     };
   }
 
-  // --- Режим активної гри ---
   if (game.isPromoting) return { inline_keyboard: [] };
 
   const moves = getAllValidMoves(game.board, game.turn, game.mustJumpPiece);
@@ -368,7 +373,7 @@ async function broadcastGame(hostId, text) {
     const oldMsgId = game.lastMsgId[pid];
     
     try {
-      const msg = await bot.sendPhoto(pid, img, { caption: text, reply_markup: getKeyboard(game, pid) });
+      const msg = await bot.sendPhoto(pid, img, { caption: text, reply_markup: getKeyboard(game, pid) }, { filename: 'board.svg', contentType: 'image/svg+xml' });
       game.lastMsgId[pid] = msg.message_id;
     } catch (e) { console.error(e); }
     
@@ -592,7 +597,6 @@ bot.on('callback_query', async (query) => {
     return bot.answerCallbackQuery(query.id);
   }
 
-  // --- Ігрові дії ---
   if (data === 'action_undo') {
     if (game.historyStack.length > 0) {
       let pops = (game.botLevel > 0 && game.turn === 'blue' && game.historyStack.length > 1) ? 2 : 1;
@@ -649,8 +653,6 @@ bot.on('callback_query', async (query) => {
     
     game.isPromoting = false; 
     game.promoTarget = null;
-    
-    // ОСЬ ТУТ ВИПРАВЛЕННЯ: очищаємо пам'ять про обов'язкове взяття
     game.mustJumpPiece = null; 
 
     game.turn = game.turn === 'green' ? 'blue' : 'green';
