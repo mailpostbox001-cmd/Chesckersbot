@@ -80,7 +80,6 @@ function createInitialBoard() {
   return board;
 }
 
-// Перетворюємо позицію на стандартний формат FEN
 function generateFen(board) {
   let fen = "";
   for (let r = 0; r < 8; r++) {
@@ -95,7 +94,9 @@ function generateFen(board) {
         else if (piece.t === B) pChar = 'b';
         else if (piece.t === K) pChar = 'k';
 
-        if (piece.c === 'blue') pChar = pChar.toUpperCase(); // Білі (сині) завжди великими
+        // Виправлено: тепер команда 'green' отримує великі літери (Білі графічні фігури), 
+        // а 'blue' залишається малими (Чорні графічні фігури). Чорні знову ходять першими!
+        if (piece.c === 'green') pChar = pChar.toUpperCase(); 
         fen += pChar;
       } else {
         emptyCount++;
@@ -107,7 +108,6 @@ function generateFen(board) {
   return fen + " w - - 0 1";
 }
 
-// Завантаження картинки
 function fetchBoardImage(url) {
   return new Promise((resolve, reject) => {
     https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
@@ -357,8 +357,6 @@ async function broadcastGame(hostId, text) {
     const isFlipped = game.p2 ? isP2 : game.isFlipped; 
 
     const flipParam = isFlipped ? 1 : 0;
-    
-    // Тут змінено колір дошки на blue (синій) та додано координати (coordinates=inside)
     const apiUrl = `https://www.chess.com/dynboard?fen=${encodeURIComponent(fenStr)}&board=blue&piece=neo&size=2&flip=${flipParam}&coordinates=inside`;
     
     const oldMsgId = game.lastMsgId[pid];
